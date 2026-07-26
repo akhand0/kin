@@ -29,6 +29,11 @@ export async function POST(req: NextRequest) {
   const data = payload?.data ?? payload;
 
   const patientId: string | undefined =
+    data?.patient_record_id ||
+    data?.metadata?.patient_record_id ||
+    data?.conversation_initiation_client_data?.dynamic_variables
+      ?.patient_record_id ||
+    data?.dynamic_variables?.patient_record_id ||
     data?.patient_id ||
     data?.metadata?.patient_id ||
     data?.conversation_initiation_client_data?.dynamic_variables?.patient_id ||
