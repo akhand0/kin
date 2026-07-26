@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { recordCheckin } from "@/lib/db";
-import { isSubstantiveCheckin } from "@/lib/triage";
+import { getPatient, listSignals, recordCheckin } from "@/lib/db";
+import { isSubstantiveCheckin, triage } from "@/lib/triage";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const patientId =
-    session.role === "patient" ? session.id : body.patientId;
+  const patientId = session.role === "patient" ? session.id : body.patientId;
 
   const transcript = body.transcript?.trim() ?? "";
   if (!patientId || !transcript) {
@@ -32,11 +31,24 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  // A greeting / small talk isn't a health check-in — acknowledge, don't log.
-  if (!isSubstantiveCheckin(transcript)) {
-    return NextResponse.json({ chit_chat: true, signal: null });
-  }
+
   try {
+    // Greetings / small talk get a real AI reply but aren't logged as a
+    // health check-in — so the record stays clean, but Kin still responds.
+    if (!isSubstantiveCheckin(transcript)) {
+      const patient = await getPatient(patientId);
+      const recent = patient ? (await listSignals(patientId)).slice(-5) : [];
+      const t = patient
+        ? await triage({ transcript, patient, recentSignals: recent })
+        : null;
+      return NextResponse.json({
+        chit_chat: true,
+        signal: null,
+        reply:
+          t?.reply || "Lovely to hear from you. How are you feeling today?",
+      });
+    }
+
     const result = await recordCheckin({
       patientId,
       transcript,
@@ -44,9 +56,6 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 }
