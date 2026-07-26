@@ -13,6 +13,12 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [sso, setSso] = useState(false);
 
+  // Magic-link state
+  const [email, setEmail] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkSent, setLinkSent] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
@@ -49,14 +55,29 @@ export default function Login() {
     }
   }
 
-  async function signInWithProvider(provider: "google" | "apple") {
+  async function sendMagicLink(e: React.FormEvent) {
+    e.preventDefault();
     const supa = supabaseBrowser();
-    if (!supa) return;
-    setError(null);
-    await supa.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    });
+    if (!supa || !email.trim()) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      const { error } = await supa.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (error) {
+        setLinkError(error.message);
+      } else {
+        setLinkSent(true);
+      }
+    } catch {
+      setLinkError("Couldn't send the link. Please try again.");
+    } finally {
+      setLinkBusy(false);
+    }
   }
 
   return (
@@ -76,28 +97,56 @@ export default function Login() {
             needs to keep you safe.
           </p>
 
-          {/* SSO */}
-          <div className="mt-5 space-y-2">
-            <ProviderButton
-              label="Continue with Google"
-              disabled={!sso}
-              onClick={() => signInWithProvider("google")}
-            />
-            <ProviderButton
-              label="Continue with Apple"
-              disabled={!sso}
-              onClick={() => signInWithProvider("apple")}
-            />
-            {!sso && (
-              <p className="pt-1 text-center text-[11px] text-kin-muted">
-                Single sign-on activates once Supabase Auth is configured.
-              </p>
-            )}
-          </div>
+          {/* Magic link */}
+          {sso ? (
+            linkSent ? (
+              <div className="mt-5 rounded-lg border border-kin-calm/30 bg-kin-calm/10 px-4 py-3 text-sm text-kin-text">
+                ✉️ Check your inbox — we sent a sign-in link to{" "}
+                <span className="font-medium">{email}</span>. Open it on this
+                device to continue.
+                <button
+                  onClick={() => {
+                    setLinkSent(false);
+                    setEmail("");
+                  }}
+                  className="mt-2 block text-xs text-kin-muted underline hover:text-kin-text"
+                >
+                  Use a different email
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={sendMagicLink} className="mt-5 space-y-2">
+                <Field
+                  label="Email"
+                  value={email}
+                  onChange={setEmail}
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@email.com"
+                />
+                {linkError && (
+                  <p className="rounded-lg bg-kin-alert/10 px-3 py-2 text-sm text-kin-alert">
+                    {linkError}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  disabled={linkBusy || !email.trim()}
+                  className="w-full rounded-lg bg-kin-accent px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {linkBusy ? "Sending…" : "Email me a sign-in link"}
+                </button>
+              </form>
+            )
+          ) : (
+            <p className="mt-5 rounded-lg border border-dashed border-kin-border px-3 py-2 text-center text-[11px] text-kin-muted">
+              Email sign-in activates once Supabase Auth is configured.
+            </p>
+          )}
 
           <div className="my-5 flex items-center gap-3">
             <span className="h-px flex-1 bg-kin-border" />
-            <span className="text-xs text-kin-muted">or</span>
+            <span className="text-xs text-kin-muted">or use a password</span>
             <span className="h-px flex-1 bg-kin-border" />
           </div>
 
@@ -128,9 +177,9 @@ export default function Login() {
             <button
               type="submit"
               disabled={busy || !username || !password}
-              className="w-full rounded-lg bg-kin-accent px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
+              className="w-full rounded-lg border border-kin-border px-4 py-2.5 text-sm font-medium text-kin-text transition hover:bg-kin-panel2 disabled:opacity-50"
             >
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? "Signing in…" : "Sign in with password"}
             </button>
           </form>
         </div>
@@ -191,27 +240,5 @@ function Field({
         className="w-full rounded-lg border border-kin-border bg-kin-bg px-3 py-2 text-sm text-kin-text placeholder:text-kin-muted focus:border-kin-accent focus:outline-none"
       />
     </label>
-  );
-}
-
-function ProviderButton({
-  label,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      title={disabled ? "Requires Supabase Auth" : undefined}
-      className="w-full rounded-lg border border-kin-border bg-kin-panel2 px-4 py-2.5 text-sm font-medium text-kin-text transition hover:bg-kin-bg disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      {label}
-    </button>
   );
 }

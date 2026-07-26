@@ -2,6 +2,7 @@
 // configured — callers check isSupabaseConfigured() first.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -25,8 +26,10 @@ export function supabaseAdmin(): SupabaseClient {
   return _admin;
 }
 
-// Browser client with the anon key — used for Realtime subscriptions.
-export function supabaseBrowser(): SupabaseClient | null {
+// Browser client with the anon key. Uses @supabase/ssr so the PKCE verifier
+// is stored in cookies (not localStorage) — the /auth/callback route needs to
+// read it server-side to complete a magic-link sign-in. Call only in the browser.
+export function supabaseBrowser() {
   if (!url || !anonKey) return null;
-  return createClient(url, anonKey);
+  return createBrowserClient(url, anonKey);
 }
