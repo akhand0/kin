@@ -158,7 +158,7 @@ export default async function Home() {
                 href="/login"
                 className="rounded-full border border-kin-border px-6 py-3 font-medium text-kin-text transition hover:bg-kin-panel"
               >
-                I&apos;m a patient
+                I&apos;d like some support
               </Link>
             </>
           )}
