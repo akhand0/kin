@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+html,
+body {
+  background: #0f1115;
+  color: #e6e8ee;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle scrollbars to match the calm aesthetic. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2f3a transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a2f3a;
+  border-radius: 8px;
+}
+
+@keyframes kin-pop {
+  0% {
+    transform: translateY(6px) scale(0.98);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+.kin-pop {
+  animation: kin-pop 0.35s ease-out;
+}
+
+@keyframes kin-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.kin-pulse {
+  animation: kin-pulse 1.6s ease-in-out infinite;
+}
+
+/* Hero heartbeat — bars rise in sequence, left to right. */
+@keyframes kin-rise {
+  from {
+    transform: scaleY(0.04);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+.kin-rise {
+  transform-origin: bottom;
+  animation: kin-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* The alert bar arrives last, then keeps breathing. */
+@keyframes kin-flare {
+  0% {
+    transform: scaleY(0.04);
+    opacity: 0;
+  }
+  60% {
+    transform: scaleY(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+.kin-flare {
+  transform-origin: bottom;
+  animation:
+    kin-flare 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both,
+    kin-pulse 1.8s ease-in-out 0.6s infinite;
+}
+
+@keyframes kin-fade-up {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.kin-fade-up {
+  animation: kin-fade-up 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Voice orb — expanding rings while Kin listens. */
+@keyframes kin-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+.kin-ring {
+  animation: kin-ring 1.8s ease-out infinite;
+}
+
+/* Gentle breathing while Kin speaks or thinks. */
+@keyframes kin-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+.kin-breathe {
+  animation: kin-breathe 2.4s ease-in-out infinite;
+}
+
+/* Equalizer bars while Kin listens. */
+@keyframes kin-bar {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.kin-bar {
+  animation: kin-bar 0.9s ease-in-out infinite;
+}
+
+/* Rotating arc while Kin thinks. */
+@keyframes kin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.kin-spin {
+  animation: kin-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kin-rise,
+  .kin-flare,
+  .kin-fade-up,
+  .kin-pulse,
+  .kin-ring,
+  .kin-breathe,
+  .kin-bar,
+  .kin-spin {
+    animation: none;
+  }
+}

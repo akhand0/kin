@@ -1,0 +1,649 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type {
+  EngagementEvent,
+  Patient,
+  Signal,
+  TriageResult,
+} from "@/lib/types";
+import { VoiceOrb, type Mode } from "@/components/VoiceOrb";
+import PrescriptionUpload from "@/components/PrescriptionUpload";
+
+// The ElevenLabs SDK is browser-only — load it client-side, so it never runs
+// during SSR of this (client) page.
+const AgentVoice = dynamic(() => import("@/components/AgentVoice"), {
+  ssr: false,
+});
+
+// Patient-facing view. Voice-first. When an ElevenLabs agent is configured, the
+// orb drives a real ElevenLabs conversation; otherwise it uses the browser's
+// Speech APIs. A text check-in is always available as a fallback.
+const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
+
+// Patient language → speech-recognition locale.
+const LOCALE: Record<string, string> = {
+  en: "en-GB",
+  hi: "hi-IN",
+  es: "es-ES",
+  fr: "fr-FR",
+  pt: "pt-PT",
+  pl: "pl-PL",
+};
+
+interface Turn {
+  who: "patient" | "kin";
+  text: string;
+}
+
+export default function Talk() {
+  const router = useRouter();
+  const [me, setMe] = useState<Patient | null>(null);
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [text, setText] = useState("");
+  const [mode, setMode] = useState<Mode>("idle");
+  const [interim, setInterim] = useState("");
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+  const [history, setHistory] = useState<EngagementEvent[]>([]);
+  const [signals, setSignals] = useState<Signal[]>([]);
+  const [sending, setSending] = useState(false); // text-chat submit in flight
+
+  const recognitionRef = useRef<any>(null);
+  const finalRef = useRef("");
+  const endRef = useRef<HTMLDivElement>(null);
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
+  const meRef = useRef<Patient | null>(null);
+  meRef.current = me;
+
+  // Reload the patient's own history/signals (after a check-in).
+  const loadHistory = useCallback(async (id: string) => {
+    try {
+      const b = await (await fetch(`/api/patients/${id}`, { cache: "no-store" })).json();
+      setHistory(b.events ?? []);
+      setSignals(b.signals ?? []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const refreshHistory = useCallback(() => {
+    if (meRef.current) loadHistory(meRef.current.id);
+  }, [loadHistory]);
+
+  useEffect(() => {
+    fetch("/api/patients", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        const patient: Patient | null = j.patients?.[0] ?? null;
+        setMe(patient);
+        if (patient) loadHistory(patient.id);
+      })
+      .catch(() => {});
+    if (typeof window !== "undefined") {
+      const SR =
+        (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition;
+      setVoiceSupported(Boolean(SR));
+    }
+  }, [loadHistory]);
+
+  // Poll so clinician updates (e.g. new medicines) show up live for the patient.
+  useEffect(() => {
+    const t = setInterval(() => {
+      fetch("/api/patients", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j) => {
+          const p: Patient | null = j.patients?.[0] ?? null;
+          if (p) setMe(p);
+        })
+        .catch(() => {});
+      refreshHistory();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [refreshHistory]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns, interim]);
+
+  // ── Speak Kin's reply ─────────────────────────────────────────
+  const speak = useCallback((message: string) => {
+    if (mutedRef.current || typeof window === "undefined" || !window.speechSynthesis)
+      return;
+    const u = new SpeechSynthesisUtterance(message);
+    u.lang = "en-GB";
+    u.rate = 0.98;
+    u.pitch = 1.05;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }, []);
+
+  // ── Send a check-in through the triage loop ───────────────────
+  // `viaVoice` is true only for the browser speech orb — that's the one path
+  // that animates the orb and speaks Kin's reply aloud. The text chat is silent.
+  const sendCheckin = useCallback(
+    async (transcript: string, viaVoice = false) => {
+      const clean = transcript.trim();
+      if (!clean) {
+        if (viaVoice) setMode("idle");
+        return;
+      }
+      setTurns((t) => [...t, { who: "patient", text: clean }]);
+      setInterim("");
+      setText("");
+      if (viaVoice) setMode("thinking");
+      else setSending(true);
+      try {
+        const res = await fetch("/api/checkin", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ transcript: clean }),
+        });
+        const json = await res.json();
+        const who = meRef.current?.name.split(" ")[0] ?? "there";
+        const reply = json.chit_chat
+          ? `Hello, ${who}! Lovely to hear from you. How are you feeling today?`
+          : kinReply(json.signal);
+        setTurns((t) => [...t, { who: "kin", text: reply }]);
+        if (!json.chit_chat) refreshHistory();
+        if (viaVoice) {
+          // Voice mode only: speak the reply and animate the orb.
+          setMode("speaking");
+          speak(reply);
+          window.setTimeout(
+            () => setMode((m) => (m === "speaking" ? "idle" : m)),
+            Math.min(9000, 1600 + reply.length * 55),
+          );
+        }
+      } catch {
+        setTurns((t) => [
+          ...t,
+          { who: "kin", text: "Sorry, I didn't catch that. Could you try again?" },
+        ]);
+        if (viaVoice) setMode("idle");
+      } finally {
+        if (!viaVoice) setSending(false);
+      }
+    },
+    [speak, refreshHistory],
+  );
+
+  // ── Voice capture ─────────────────────────────────────────────
+  const startListening = useCallback(() => {
+    const SR =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setHint("Voice isn't supported in this browser — you can type instead.");
+      return;
+    }
+    setHint(null);
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+    const rec = new SR();
+    rec.lang = LOCALE[me?.language ?? "en"] ?? "en-GB";
+    rec.interimResults = true;
+    rec.continuous = false;
+    finalRef.current = "";
+
+    rec.onresult = (e: any) => {
+      let interimText = "";
+      let finalText = finalRef.current;
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t;
+        else interimText += t;
+      }
+      finalRef.current = finalText;
+      setInterim(finalText + interimText);
+    };
+    rec.onerror = (e: any) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setHint("Kin needs microphone access. Enable it, or type below.");
+      } else if (e.error === "no-speech") {
+        setHint("I didn't hear anything — tap and try again, or type below.");
+      }
+      setMode("idle");
+      setInterim("");
+    };
+    rec.onend = () => {
+      recognitionRef.current = null;
+      const captured = finalRef.current.trim();
+      if (captured) sendCheckin(captured, true);
+      else setMode("idle");
+    };
+
+    recognitionRef.current = rec;
+    setMode("listening");
+    setInterim("");
+    rec.start();
+  }, [me?.language, sendCheckin]);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+  }, []);
+
+  const onOrbTap = useCallback(() => {
+    if (mode === "listening") stopListening();
+    else if (mode === "speaking") {
+      window.speechSynthesis?.cancel();
+      setMode("idle");
+    } else if (mode === "idle") startListening();
+  }, [mode, startListening, stopListening]);
+
+  async function signOut() {
+    window.speechSynthesis?.cancel();
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/");
+    router.refresh();
+  }
+
+  const firstName = me?.name.split(" ")[0] ?? "there";
+
+  // The patient's own data, handed to the voice agent so it can answer
+  // questions about their meds, conditions, and recent check-ins.
+  const agentVariables: Record<string, string> = me
+    ? {
+        patient_id: me.id,
+        patient_name: firstName,
+        full_name: me.name,
+        language: me.language,
+        conditions: me.conditions.join(", ") || "none on record",
+        medicines: me.medicines.join(", ") || "none on record",
+        checkins_last_month: String(
+          history.filter(
+            (e) =>
+              e.direction === "pull" &&
+              Date.now() - new Date(e.ts).getTime() <= 30 * 24 * 3600 * 1000,
+          ).length,
+        ),
+        last_checkin: (() => {
+          const last = signals[signals.length - 1];
+          if (!last) return "no check-ins yet";
+          const meds =
+            last.med_adherence === "taken"
+              ? "medicines taken"
+              : last.med_adherence === "missed"
+                ? "a missed dose"
+                : last.med_adherence === "stopped"
+                  ? "medicines paused"
+                  : "checked in";
+          return `${friendlyDate(last.ts)} — ${meds}`;
+        })(),
+      }
+    : {};
+
+  return (
+    <main className="min-h-screen bg-kin-bg">
+      <header className="border-b border-kin-border">
+        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
+          <Link href="/" className="text-lg font-bold">
+            Kin
+          </Link>
+          <div className="flex items-center gap-3">
+            {me && (
+              <span className="hidden text-sm text-kin-muted sm:inline">
+                {me.name}
+              </span>
+            )}
+            <Link
+              href="/peers"
+              className="rounded-lg border border-kin-border px-3 py-1.5 text-sm text-kin-text hover:bg-kin-panel"
+            >
+              Peer support
+            </Link>
+            <button
+              onClick={signOut}
+              className="rounded-lg border border-kin-border px-3 py-1.5 text-sm text-kin-text hover:bg-kin-panel"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-2xl px-4 py-8">
+        <h1 className="text-2xl font-bold text-kin-text">
+          Hello, {firstName}.
+        </h1>
+        <p className="mt-1 text-kin-muted">
+          Tell Kin how you&apos;re doing today — just talk, in whatever language
+          feels easiest.
+        </p>
+
+        {me && <HealthCard patient={me} history={history} />}
+
+        {me && <PrescriptionUpload />}
+
+        {/* Voice stage — real ElevenLabs agent when configured, else browser voice. */}
+        {AGENT_ID ? (
+          me && (
+            <AgentVoice
+              agentId={AGENT_ID}
+              variables={agentVariables}
+              onCheckin={refreshHistory}
+            />
+          )
+        ) : (
+          <>
+            <div className="mt-8 flex flex-col items-center">
+              <VoiceOrb mode={mode} onTap={onOrbTap} />
+              <StatusLine mode={mode} voiceSupported={voiceSupported} />
+
+              {interim && (
+                <p className="mt-4 max-w-md text-center text-lg text-kin-text">
+                  “{interim}”
+                </p>
+              )}
+              {hint && (
+                <p className="mt-3 max-w-sm text-center text-sm text-kin-nudge">
+                  {hint}
+                </p>
+              )}
+
+              {/* mute toggle */}
+              <button
+                onClick={() => {
+                  const next = !muted;
+                  setMuted(next);
+                  if (next) window.speechSynthesis?.cancel();
+                }}
+                className="mt-4 flex items-center gap-1.5 text-xs text-kin-muted hover:text-kin-text"
+              >
+                {muted ? "🔇 Kin's voice off" : "🔊 Kin's voice on"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Conversation — the typed exchange, shown in either mode. */}
+        {turns.length > 0 && (
+          <div className="mt-8 space-y-3">
+            {turns.map((t, i) => (
+              <div
+                key={i}
+                className={`flex ${t.who === "patient" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
+                    t.who === "patient"
+                      ? "bg-kin-accent text-black"
+                      : "bg-kin-panel2 text-kin-text"
+                  }`}
+                >
+                  {t.text}
+                </div>
+              </div>
+            ))}
+            <div ref={endRef} />
+          </div>
+        )}
+
+        {/* Text check-in — always available, a direct path to triage. */}
+        <div className="mt-8">
+          <div className="mb-2 flex items-center gap-3">
+            <span className="h-px flex-1 bg-kin-border" />
+            <span className="text-xs text-kin-muted">or type instead</span>
+            <span className="h-px flex-1 bg-kin-border" />
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !sending && sendCheckin(text)}
+              placeholder="Tell Kin how you're doing…"
+              className="flex-1 rounded-lg border border-kin-border bg-kin-bg px-3 py-2 text-sm text-kin-text placeholder:text-kin-muted"
+            />
+            <button
+              onClick={() => sendCheckin(text)}
+              disabled={sending || !text.trim()}
+              className="rounded-lg bg-kin-accent px-4 py-2 text-sm font-semibold text-black hover:opacity-90 disabled:opacity-50"
+            >
+              {sending ? "…" : "Send"}
+            </button>
+          </div>
+        </div>
+
+        <RecentCheckins signals={signals} />
+
+        <p className="mt-8 text-center text-xs text-kin-muted">
+          Kin is a companion, not a clinician. It never diagnoses or advises —
+          anything urgent goes to your care team, and a person is always the one
+          who decides.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+// ── Patient details + chronic history ───────────────────────────
+function HealthCard({
+  patient,
+  history,
+}: {
+  patient: Patient;
+  history: EngagementEvent[];
+}) {
+  const MONTH = 30 * 24 * 3600 * 1000;
+  const now = Date.now();
+  const monthCheckins = history.filter(
+    (e) => e.direction === "pull" && now - new Date(e.ts).getTime() <= MONTH,
+  ).length;
+
+  return (
+    <div className="mt-6 rounded-2xl border border-kin-border bg-kin-panel p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-semibold text-kin-text">
+          What Kin keeps an eye on for you
+        </span>
+        <span className="text-[11px] text-kin-muted">{patient.patient_ref}</span>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-kin-muted">
+            Conditions
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {patient.conditions.length ? (
+              patient.conditions.map((c) => (
+                <span
+                  key={c}
+                  className="rounded-full bg-kin-panel2 px-2.5 py-1 text-xs text-kin-text"
+                >
+                  {c}
+                </span>
+              ))
+            ) : (
+              <span className="text-sm text-kin-muted">None on record</span>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-kin-muted">
+            Your medicines
+          </div>
+          <ul className="mt-2 space-y-1">
+            {patient.medicines.length ? (
+              patient.medicines.map((m) => (
+                <li
+                  key={m}
+                  className="flex items-center gap-2 text-sm text-kin-text"
+                >
+                  <span className="text-kin-accent">💊</span>
+                  {m}
+                </li>
+              ))
+            ) : (
+              <li className="text-sm text-kin-muted">None on record</li>
+            )}
+          </ul>
+        </div>
+      </div>
+
+      {monthCheckins > 0 && (
+        <p className="mt-4 border-t border-kin-border pt-3 text-sm text-kin-muted">
+          You&apos;ve checked in{" "}
+          <span className="font-semibold text-kin-calm">{monthCheckins}</span>{" "}
+          {monthCheckins === 1 ? "time" : "times"} in the last month — thank you
+          for keeping Kin in the loop.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// The patient's own past check-ins as a tidy English summary derived from
+// structured data (not the raw transcript, which is in their spoken language).
+// Deliberately neutral — no triage labels or clinical notes; those are for the
+// care team.
+function RecentCheckins({ signals }: { signals: Signal[] }) {
+  const [open, setOpen] = useState(false);
+  const rows = [...signals]
+    .sort((a, b) => b.ts.localeCompare(a.ts))
+    .slice(0, 7);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-10">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between rounded-xl border border-kin-border bg-kin-panel px-4 py-3 text-left transition hover:bg-kin-panel2"
+        aria-expanded={open}
+      >
+        <span className="text-sm font-semibold text-kin-text">
+          Your recent check-ins
+          <span className="ml-2 text-xs font-normal text-kin-muted">
+            {rows.length}
+          </span>
+        </span>
+        <span
+          className="text-kin-muted transition-transform"
+          style={{ transform: open ? "rotate(180deg)" : "none" }}
+          aria-hidden
+        >
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-2 overflow-hidden rounded-xl border border-kin-border">
+          {rows.map((s, i) => (
+            <div
+              key={s.id}
+              className={`flex items-start gap-4 px-4 py-3 ${
+                i > 0 ? "border-t border-kin-border" : ""
+              }`}
+            >
+              <div className="w-20 shrink-0 pt-0.5 text-xs font-medium text-kin-muted">
+                {friendlyDate(s.ts)}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <CheckinChips signal={s} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CheckinChips({ signal }: { signal: Signal }) {
+  const chips: { text: string; tone: "calm" | "warn" }[] = [];
+
+  if (signal.med_adherence === "taken")
+    chips.push({ text: "Medicines taken", tone: "calm" });
+  else if (signal.med_adherence === "missed")
+    chips.push({ text: "Dose missed", tone: "warn" });
+  else if (signal.med_adherence === "stopped")
+    chips.push({ text: "Medicines paused", tone: "warn" });
+
+  for (const sym of signal.symptoms) {
+    chips.push({ text: capitalise(sym.name), tone: "warn" });
+  }
+
+  // Nothing notable → a calm, reassuring line.
+  if (chips.length === 0) {
+    chips.push({ text: "Checked in — all well", tone: "calm" });
+  }
+
+  return (
+    <>
+      {chips.map((c, i) => (
+        <span
+          key={i}
+          className="rounded-full px-2.5 py-1 text-xs"
+          style={{
+            background: c.tone === "calm" ? "#4ade801a" : "#fbbf241a",
+            color: c.tone === "calm" ? "#4ade80" : "#fbbf24",
+          }}
+        >
+          {c.text}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function capitalise(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Friendly relative date: Today / Yesterday / "Mon 21 Jul".
+function friendlyDate(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const startOf = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(today) - startOf(d)) / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function StatusLine({
+  mode,
+  voiceSupported,
+}: {
+  mode: Mode;
+  voiceSupported: boolean;
+}) {
+  const label =
+    mode === "listening"
+      ? "Listening… tap to stop"
+      : mode === "thinking"
+        ? "Kin is thinking…"
+        : mode === "speaking"
+          ? "Kin is replying… tap to stop"
+          : voiceSupported
+            ? "Tap to talk"
+            : "Tap to talk (or type below)";
+  return <p className="mt-5 text-sm font-medium text-kin-muted">{label}</p>;
+}
+
+// A warm, non-medical acknowledgement. Kin never advises or reassures about
+// symptoms — it logs, and tells the patient when it will loop in their care team.
+function kinReply(signal: { triage: TriageResult["triage"] } | undefined) {
+  if (!signal) return "Thank you for checking in. I've noted that down.";
+  switch (signal.triage) {
+    case "red_flag":
+      return "Thank you for telling me — that sounds important. I'm not a doctor, so I won't guess, but I've passed this to your care team so someone can check on you. You're not alone.";
+    case "nudge":
+      return "Thanks for sharing that with me. I've made a note, and I'll check in again tomorrow. Is there anything you'd like me to remind you about?";
+    default:
+      return "Lovely to hear from you. I've logged today's check-in — take care, and talk soon.";
+  }
+}
