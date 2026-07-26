@@ -122,12 +122,12 @@ record key as `patient_record_id` and the patient's first name as `patient_id`
 webhook accepts `patient_record_id` first and falls back to the legacy
 `patient_id`.
 
-For immediate in-call care-team handoffs, add an ElevenLabs **client tool**
-named `notify_care_team` with an optional string parameter named `details`.
-The browser implementation saves the full spoken context as a structured
-check-in and creates a `care_request` item in the clinician's decision queue.
-Post-call processing detects the same request as a fallback when the tool is
-not configured or called.
+The browser automatically detects an explicit spoken request to contact a GP
+or care team, saves the full spoken context as a structured check-in, and
+creates a `care_request` item in the clinician's decision queue. This does not
+depend on the ElevenLabs prompt or tool-calling behaviour. An optional client
+tool named `notify_care_team` (with a string `details` parameter) remains
+supported, and post-call processing provides a final fallback.
 
 ## Anomaly rules (MVP — no ML)
 

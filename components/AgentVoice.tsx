@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
+import { isCareTeamRequest } from "@/lib/care-request";
 import { VoiceOrb, type Mode } from "./VoiceOrb";
 
 // Strip ElevenLabs audio/emotion tags like "[happy]" from the visible text.
@@ -115,7 +116,11 @@ function AgentOrb({
   const [turns, setTurns] = useState<Turn[]>([]);
   const userBuf = useRef("");
   const handoffInFlight = useRef(false);
+  const handoffSaved = useRef(false);
+  const replaceNextAgentTurn = useRef(false);
   const contextualUpdateRef = useRef<(text: string) => void>(() => {});
+  const setAgentVolumeRef = useRef<(volume: number) => void>(() => {});
+  const setAgentMutedRef = useRef<(muted: boolean) => void>(() => {});
   // Keep the latest context in a ref so the session always uses it.
   const varsRef = useRef(variables);
   varsRef.current = variables;
@@ -126,6 +131,8 @@ function AgentOrb({
     startSession,
     endSession,
     sendContextualUpdate,
+    setVolume,
+    setMuted,
   } = useConversation({
     onConnect: () => {
       contextualUpdateRef.current(
@@ -137,6 +144,13 @@ function AgentOrb({
     },
     onMessage: ({ message, source }) => {
       const text = stripTags(message);
+      // When the patient explicitly asks for their GP/care team, the app owns
+      // the next response. This prevents a dashboard-configured agent prompt
+      // from incorrectly claiming that Kin cannot create the handoff.
+      if (source !== "user" && replaceNextAgentTurn.current) {
+        replaceNextAgentTurn.current = false;
+        return;
+      }
       if (text) {
         setTurns((turns) => [
           ...turns,
@@ -145,6 +159,12 @@ function AgentOrb({
       }
       if (source === "user") {
         userBuf.current = `${userBuf.current} ${message}`.trim();
+        if (isCareTeamRequest(text) && !handoffInFlight.current) {
+          replaceNextAgentTurn.current = true;
+          setAgentVolumeRef.current(0);
+          setAgentMutedRef.current(true);
+          void saveCareTeamHandoff();
+        }
       }
     },
     onError: (message) => {
@@ -172,6 +192,65 @@ function AgentOrb({
     },
   });
   contextualUpdateRef.current = sendContextualUpdate;
+  setAgentVolumeRef.current = (volume) => setVolume({ volume });
+  setAgentMutedRef.current = setMuted;
+
+  async function saveCareTeamHandoff() {
+    const transcript = userBuf.current.trim();
+    if (!transcript || handoffInFlight.current) return;
+
+    handoffInFlight.current = true;
+    const successMessage =
+      "I've sent a note with what you shared to your care team for review. " +
+      "I can't promise when they'll respond, so please contact them directly if you need a quicker reply.";
+    const failureMessage =
+      "I couldn't save that note just now. Please contact your care team directly, especially if you need a quick response.";
+
+    try {
+      const response = await fetch("/api/checkin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          transcript,
+          requestCareTeam: true,
+        }),
+      });
+      if (!response.ok) throw new Error("handoff_failed");
+
+      handoffSaved.current = true;
+      userBuf.current = "";
+      setTurns((turns) => [...turns, { who: "kin", text: successMessage }]);
+      contextualUpdateRef.current(
+        "The care-team handoff has now been saved successfully. Do not say that you cannot contact the care team. " +
+          "If this comes up again, confirm that the note is in their review queue without promising a response time.",
+      );
+      onCheckin?.();
+      speakLocalConfirmation(successMessage);
+    } catch {
+      setTurns((turns) => [...turns, { who: "kin", text: failureMessage }]);
+      speakLocalConfirmation(failureMessage);
+    } finally {
+      handoffInFlight.current = false;
+    }
+  }
+
+  function speakLocalConfirmation(message: string) {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      setAgentVolumeRef.current(1);
+      setAgentMutedRef.current(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = "en-GB";
+    const restoreAgentAudio = () => {
+      setAgentVolumeRef.current(1);
+      setAgentMutedRef.current(false);
+    };
+    utterance.onend = restoreAgentAudio;
+    utterance.onerror = restoreAgentAudio;
+    window.speechSynthesis.speak(utterance);
+  }
 
   const mode: Mode =
     status === "connecting"
@@ -189,6 +268,8 @@ function AgentOrb({
     }
     setHint(null);
     setTurns([]);
+    handoffSaved.current = false;
+    replaceNextAgentTurn.current = false;
     startSession({
       agentId,
       connectionType: "webrtc",
@@ -210,10 +291,13 @@ function AgentOrb({
             return "Sorry, I couldn't reach the record right now.";
           }
         },
-        // Configure an ElevenLabs client tool with this exact name to let the
-        // agent make and confirm the handoff during the call. The post-call
-        // path remains a fallback, so the request is never lost.
+        // Kept for agents already configured to call this tool. The app also
+        // detects care-team requests itself, so correct behaviour does not
+        // depend on the model choosing to call it.
         notify_care_team: async (parameters: { details?: string }) => {
+          if (handoffSaved.current) {
+            return "The health note is already saved in the care team's decision queue.";
+          }
           if (handoffInFlight.current) {
             return "A care-team handoff is already being sent.";
           }

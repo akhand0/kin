@@ -8,7 +8,8 @@ import { randomUUID } from "node:crypto";
 import { buildSeed } from "./seed";
 import { detectAnomalies } from "./anomaly";
 import { decideOnSignal, decideOnSweep } from "./agent";
-import { isCareTeamRequest, triage } from "./triage";
+import { isCareTeamRequest } from "./care-request";
+import { triage } from "./triage";
 import { isSupabaseConfigured, supabaseAdmin } from "./supabase";
 import type {
   Alert,

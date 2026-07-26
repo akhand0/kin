@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorized } from "@/lib/auth";
 import { recordCheckin } from "@/lib/db";
-import { isCareTeamRequest, isSubstantiveCheckin } from "@/lib/triage";
+import { isCareTeamRequest } from "@/lib/care-request";
+import { isSubstantiveCheckin } from "@/lib/triage";
 
 export const dynamic = "force-dynamic";
 
