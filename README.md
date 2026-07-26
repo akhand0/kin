@@ -55,17 +55,6 @@ npm run dev        # → http://localhost:3000
   ElevenLabs Conversational AI widget when `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` is
   set. Text is always there as a fallback.
 
-### Demo accounts
-
-| Role | Credentials |
-| --- | --- |
-| Patient | `priya` / `kin1234` |
-| Patient | `miguel` / `kin1234` |
-| Clinician | `clinician` / `kin1234` |
-
-Every seeded patient's username is their first name; the demo password is the
-same for all of them. SSO buttons activate once Supabase Auth is configured.
-
 ## Kin is the coordinator
 
 Kin runs the caseload itself and escalates only what needs a clinical decision:
@@ -149,26 +138,6 @@ Defined in [`lib/anomaly.ts`](lib/anomaly.ts):
 migration. Signals are the structured output of triage; `agent_actions` is Kin's
 audit trail; alerts are the subset that reached a clinician.
 
-## API
-
-| Route | Purpose |
-| --- | --- |
-| `POST /api/auth/login` | Username + password sign-in (patient or clinician). |
-| `GET /api/auth/me` | Current session + whether SSO is available. |
-| `GET /auth/callback` | SSO return leg; maps the verified email to a patient. |
-| `GET /api/patients` | Caseload + Kin's 24h summary. Patients see only themselves. |
-| `GET /api/patients/:id` | Full bundle (events, signals, alerts, agent actions). |
-| `POST /api/checkin` | A check-in → triage → Kin decides: handle or escalate. |
-| `POST /api/webhook/elevenlabs` | ElevenLabs post-call webhook (same loop). |
-| `GET \| POST /api/anomaly-check` | Kin's scheduled sweep (secured). |
-| `PATCH /api/alerts/:id` | Claim / resolve. |
-| `POST /api/push` | Simulate a push-ladder step. |
-
-## Deploy
-
-Push to GitHub, import into Vercel, set env vars. `vercel.json` runs the anomaly
-sweep hourly via Vercel Cron (set a `CRON_SECRET` env var and it's used
-automatically).
 
 ## Positioning
 
