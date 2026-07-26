@@ -31,7 +31,11 @@ export interface AgentDecision {
 }
 
 // Alerts that always require a human clinician.
-const ESCALATING_KINDS: Alert["kind"][] = ["loud_anomaly", "unreachable"];
+const ESCALATING_KINDS: Alert["kind"][] = [
+  "loud_anomaly",
+  "unreachable",
+  "care_request",
+];
 
 // Decide what Kin does with a fresh check-in signal.
 export function decideOnSignal(
@@ -60,7 +64,9 @@ export function decideOnSignal(
         rationale:
           a.kind === "loud_anomaly"
             ? "Clinical red flag — handed to the on-call clinician without advising the patient."
-            : "Patient unreachable after repeated attempts — handed to the on-call clinician.",
+            : a.kind === "care_request"
+              ? "Patient requested care-team contact — handed over for a human response."
+              : "Patient unreachable after repeated attempts — handed to the on-call clinician.",
         alert_id: a.id,
       });
     }

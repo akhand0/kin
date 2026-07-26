@@ -5,7 +5,11 @@ export type Mood = "ok" | "low" | "distressed" | "unclear";
 export type Triage = "on_track" | "nudge" | "red_flag";
 export type Direction = "pull" | "push";
 export type Channel = "voice_widget" | "phone" | "whatsapp";
-export type AlertKind = "quiet_anomaly" | "loud_anomaly" | "unreachable";
+export type AlertKind =
+  | "quiet_anomaly"
+  | "loud_anomaly"
+  | "unreachable"
+  | "care_request";
 export type AlertStatus = "open" | "acked" | "resolved";
 
 export interface Patient {

@@ -15,7 +15,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  let body: { patientId?: string; transcript?: string; duration_s?: number };
+  let body: {
+    patientId?: string;
+    transcript?: string;
+    duration_s?: number;
+    requestCareTeam?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
@@ -53,6 +58,7 @@ export async function POST(req: NextRequest) {
       patientId,
       transcript,
       duration_s: body.duration_s ?? null,
+      requestCareTeam: body.requestCareTeam,
     });
     return NextResponse.json(result);
   } catch (err) {

@@ -50,7 +50,7 @@ create table if not exists signals (
 create table if not exists alerts (
   id uuid primary key default gen_random_uuid(),
   patient_id uuid references patients on delete cascade,
-  kind text check (kind in ('quiet_anomaly','loud_anomaly','unreachable')),
+  kind text check (kind in ('quiet_anomaly','loud_anomaly','unreachable','care_request')),
   severity int default 3,
   context text,
   suggested_action text,

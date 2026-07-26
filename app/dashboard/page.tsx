@@ -41,11 +41,13 @@ const KIND_ICON: Record<Alert["kind"], string> = {
   loud_anomaly: "🚩",
   quiet_anomaly: "🌙",
   unreachable: "📵",
+  care_request: "💬",
 };
 const KIND_LABEL: Record<Alert["kind"], string> = {
   loud_anomaly: "red flag",
   quiet_anomaly: "gone quiet",
   unreachable: "unreachable",
+  care_request: "contact requested",
 };
 
 export default function Dashboard() {

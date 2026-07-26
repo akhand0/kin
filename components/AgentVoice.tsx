@@ -114,11 +114,27 @@ function AgentOrb({
   const [hint, setHint] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const userBuf = useRef("");
+  const handoffInFlight = useRef(false);
+  const contextualUpdateRef = useRef<(text: string) => void>(() => {});
   // Keep the latest context in a ref so the session always uses it.
   const varsRef = useRef(variables);
   varsRef.current = variables;
 
-  const { status, isSpeaking, startSession, endSession } = useConversation({
+  const {
+    status,
+    isSpeaking,
+    startSession,
+    endSession,
+    sendContextualUpdate,
+  } = useConversation({
+    onConnect: () => {
+      contextualUpdateRef.current(
+        "Kin can send a structured health note to this patient's care-team dashboard. " +
+          "If the patient asks to contact, connect with, or pass details to their GP, doctor, nurse, or care team, " +
+          "do not say that you are unable to help. Reassure them that you will pass the details on. " +
+          "Use the notify_care_team client tool when it is available; otherwise the complete note is sent automatically when the call ends.",
+      );
+    },
     onMessage: ({ message, source }) => {
       const text = stripTags(message);
       if (text) {
@@ -155,6 +171,7 @@ function AgentOrb({
       }
     },
   });
+  contextualUpdateRef.current = sendContextualUpdate;
 
   const mode: Mode =
     status === "connecting"
@@ -191,6 +208,46 @@ function AgentOrb({
             return summariseRecord(await res.json());
           } catch {
             return "Sorry, I couldn't reach the record right now.";
+          }
+        },
+        // Configure an ElevenLabs client tool with this exact name to let the
+        // agent make and confirm the handoff during the call. The post-call
+        // path remains a fallback, so the request is never lost.
+        notify_care_team: async (parameters: { details?: string }) => {
+          if (handoffInFlight.current) {
+            return "A care-team handoff is already being sent.";
+          }
+          const details =
+            typeof parameters?.details === "string"
+              ? parameters.details.trim()
+              : "";
+          const transcript = [userBuf.current.trim(), details]
+            .filter(Boolean)
+            .join(" ");
+          if (!transcript) {
+            return "Ask the patient what they want the care team to know first.";
+          }
+
+          handoffInFlight.current = true;
+          try {
+            const response = await fetch("/api/checkin", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                transcript,
+                requestCareTeam: true,
+              }),
+            });
+            if (!response.ok) {
+              return "The handoff could not be saved. Tell the patient to contact their care team directly.";
+            }
+            userBuf.current = "";
+            onCheckin?.();
+            return "The health note was saved to the care team's decision queue. Confirm this to the patient without promising when the team will respond.";
+          } catch {
+            return "The handoff could not be saved. Tell the patient to contact their care team directly.";
+          } finally {
+            handoffInFlight.current = false;
           }
         },
       },

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorized } from "@/lib/auth";
 import { recordCheckin } from "@/lib/db";
-import { isSubstantiveCheckin } from "@/lib/triage";
+import { isCareTeamRequest, isSubstantiveCheckin } from "@/lib/triage";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
       patientId,
       transcript: transcript.trim(),
       channel: "voice_widget",
+      requestCareTeam: isCareTeamRequest(transcript),
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {

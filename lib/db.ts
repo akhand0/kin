@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { buildSeed } from "./seed";
 import { detectAnomalies } from "./anomaly";
 import { decideOnSignal, decideOnSweep } from "./agent";
-import { triage } from "./triage";
+import { isCareTeamRequest, triage } from "./triage";
 import { isSupabaseConfigured, supabaseAdmin } from "./supabase";
 import type {
   Alert,
@@ -574,6 +574,7 @@ export interface CheckinInput {
   direction?: Direction;
   channel?: Channel;
   duration_s?: number | null;
+  requestCareTeam?: boolean;
 }
 
 export interface CheckinResult {
@@ -639,14 +640,54 @@ export async function recordCheckin(input: CheckinInput): Promise<CheckinResult>
   const alerts: Alert[] = [];
   for (const a of decision.escalations) alerts.push(await s.insertAlert(a));
 
-  const actions = await logActions(s, decision.actions);
+  const actionDrafts = [...decision.actions];
+  const requestedHandoff =
+    input.requestCareTeam === true || isCareTeamRequest(input.transcript);
+  const existingRequest = openAlerts.find((a) => a.kind === "care_request");
+
+  if (requestedHandoff) {
+    const handoffFields = {
+      severity: Math.max(
+        existingRequest?.severity ?? 0,
+        signal.triage === "red_flag" ? 5 : 3,
+      ),
+      context: `${patient.name} asked for care-team contact. ${signal.summary_en}`,
+      suggested_action:
+        signal.suggested_action ??
+        "Review this check-in and contact the patient about their concern.",
+    };
+    const alert = existingRequest
+      ? await s.updateAlert(existingRequest.id, handoffFields)
+      : await s.insertAlert({
+          id: uid("alert"),
+          patient_id: patient.id,
+          kind: "care_request",
+          ...handoffFields,
+          status: "open",
+          created_at: now,
+          resolved_at: null,
+        });
+    if (!alert) throw new Error("Could not save care-team handoff");
+    alerts.push(alert);
+    actionDrafts.push({
+      patient_id: patient.id,
+      kind: "escalated",
+      rationale:
+        "Patient explicitly requested care-team contact — sent a structured handoff for human review.",
+      alert_id: alert.id,
+    });
+  }
+
+  const actions = await logActions(s, actionDrafts);
 
   return {
     event,
     signal,
     alerts,
     actions,
-    reply: aiReply || "Thank you for checking in — I've noted that down.",
+    reply: requestedHandoff
+      ? `I've sent a note with what you shared to your care team for review. I can't promise when they'll respond, so please contact them directly if you need a quicker reply.`
+      : aiReply || "Thank you for checking in — I've noted that down.",
   };
 }
 

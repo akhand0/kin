@@ -11,6 +11,7 @@ const KIND_META: Record<
   loud_anomaly: { label: "Red flag", color: "#f87171", icon: "🚩" },
   quiet_anomaly: { label: "Gone quiet", color: "#fbbf24", icon: "🌙" },
   unreachable: { label: "Unreachable", color: "#fb923c", icon: "📵" },
+  care_request: { label: "Contact requested", color: "#60a5fa", icon: "💬" },
 };
 
 export default function AlertCard({
