@@ -4,7 +4,6 @@ import {
   listAgentActions,
   listAlerts,
   listPatients,
-  listPrescriptions,
   listSignals,
 } from "@/lib/db";
 import { summarise } from "@/lib/agent";
@@ -31,7 +30,6 @@ export async function GET() {
       const signals = await listSignals(p.id);
       const alerts = await listAlerts(p.id);
       const actions = await listAgentActions(p.id);
-      const prescriptions = await listPrescriptions(p.id);
       const last = signals[signals.length - 1] ?? null;
       const open = alerts.filter((a) => a.status === "open");
       const top = open.reduce<(typeof open)[number] | null>(
@@ -53,9 +51,6 @@ export async function GET() {
         top_severity: top?.severity ?? 0,
         top_kind: top?.kind ?? null,
         agent_handling: open.length === 0 && handledRecently,
-        pending_prescriptions: prescriptions.filter(
-          (rx) => rx.status === "pending",
-        ).length,
       };
     }),
   );

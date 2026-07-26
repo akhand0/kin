@@ -21,19 +21,79 @@ Return ONLY valid JSON matching this shape:
   "triage": "on_track | nudge | red_flag",
   "summary_en": "2 sentences, plain English, written for a care coordinator",
   "suggested_action": "one concrete action for the care coordinator, or null",
-  "reply": "your warm, natural reply TO THE PATIENT (1-2 sentences), in the SAME language they wrote in, addressing them by first name if known"
+  "reply": "your warm, engaging reply TO THE PATIENT (2-4 sentences), in the SAME language they wrote in, using their first name naturally"
 }
 
 Rules:
 - red_flag if: chest pain, severe breathlessness, fainting, a fall, confusion, uncontrolled bleeding, medicines stopped entirely, or a symptom clearly worsening versus recent context.
 - nudge if: missed doses, ran out of medicine, missed an appointment, or mood is persistently low.
 - Be conservative: if evidence is unclear, say "unclear". Never invent details that are not in the transcript.
-- The "reply" is you speaking to the patient: kind and human, never clinical. Do NOT diagnose, advise on symptoms, or tell them what a symptom means. If anything is concerning, reassure them you've passed it to their care team so a person can check on them. For plain greetings or small talk, just reply warmly and invite them to share how they're doing.`;
+- The "reply" is you speaking to the patient: warm, human, and genuinely engaging — like a caring companion, not a form. Actually answer what they asked and show you're listening. Vary your wording; do NOT end every message with the same question.
+- You MAY share general, factual health education (e.g. what a condition or medicine is for, healthy-habit tips). You must NOT diagnose the patient's own symptoms, interpret what their symptoms mean for them, or tell them to start/stop/change any medication — for anything about their own care, gently involve their care team. If something sounds concerning, reassure them you've flagged it so a person can check on them.
+- For greetings or small talk, be friendly and inviting.`;
 
 export interface TriageInput {
   transcript: string;
   patient: Pick<Patient, "conditions" | "medicines" | "language" | "name">;
   recentSignals: Signal[]; // last 5, newest last
+}
+
+// ── Prescription explainer ──────────────────────────────────────
+// Reads an uploaded prescription image and explains it to the patient in plain
+// language. Safety: only states what is legible, never invents a dose, and
+// always defers exact instructions to the doctor/pharmacist.
+const PRESCRIPTION_SYSTEM_PROMPT = `You are Kin, a warm health companion. A patient has uploaded a photo of their prescription. Read it and explain it back to them in plain, friendly language, using their first name.
+
+For each medicine you can clearly read, say: what it is, what it's generally for, and how/when to take it exactly as written on the script. Be warm and engaging (a few short sentences or a short list).
+
+Strict rules:
+- Only state what is clearly legible. Never guess or invent a dose, frequency, or instruction. If part is unclear, say so plainly.
+- You are NOT their doctor. Do not tell them to start, stop, or change anything.
+- Write in plain text only — no markdown symbols like ** or # (this is shown in a chat bubble).
+- End with a brief, reassuring reminder to follow their doctor's written instructions and to ask their pharmacist or care team if anything is unclear or they feel unwell.`;
+
+export async function explainPrescription(
+  dataUrl: string,
+  firstName?: string,
+): Promise<string> {
+  const name = firstName || "there";
+  // Only image prescriptions can be read by vision; PDFs/others get a note.
+  if (!/^data:image\//i.test(dataUrl) || !process.env.OPENAI_API_KEY) {
+    return `Thanks, ${name} — I've saved your prescription. I can read photo uploads automatically; for this one, please follow the instructions written on it and ask your pharmacist or care team if anything's unclear.`;
+  }
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
+        messages: [
+          { role: "system", content: PRESCRIPTION_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `The patient's first name is ${name}. Please read this prescription and explain it to them.`,
+              },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    return (
+      data?.choices?.[0]?.message?.content?.trim() ||
+      `Thanks, ${name} — I've saved your prescription. Please follow the written instructions and ask your pharmacist if anything's unclear.`
+    );
+  } catch {
+    return `Thanks, ${name} — I've saved your prescription, but I couldn't read it clearly just now. Please follow the instructions written on it and check with your pharmacist or care team if anything's unclear.`;
+  }
 }
 
 // ── Check-in substance guard ────────────────────────────────────

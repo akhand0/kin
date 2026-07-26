@@ -65,7 +65,7 @@ export interface AgentAction {
 
 // A prescription the patient uploads (photo/PDF of their script). The clinician
 // reviews it and updates the patient's `medicines`, then marks it reviewed.
-export type PrescriptionStatus = "pending" | "reviewed";
+export type PrescriptionStatus = "pending" | "reviewed" | "explained";
 
 export interface Prescription {
   id: string;
@@ -74,6 +74,7 @@ export interface Prescription {
   mime_type: string;
   file_url: string; // data URL (demo) or storage URL — omitted from list payloads
   note: string | null; // optional note from the patient
+  explanation: string | null; // Kin's plain-language explanation for the patient
   status: PrescriptionStatus;
   created_at: string;
   reviewed_at: string | null;
