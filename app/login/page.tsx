@@ -12,7 +12,6 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sso, setSso] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
   // Magic-link state
   const [email, setEmail] = useState("");
@@ -145,61 +144,45 @@ export default function Login() {
             </p>
           )}
 
-          {/* Password sign-in — hidden by default (patients use the link);
-              revealed for staff/clinician, and always shown offline. */}
-          {sso && !showPassword && (
+          <div className="my-5 flex items-center gap-3">
+            <span className="h-px flex-1 bg-kin-border" />
+            <span className="text-xs text-kin-muted">
+              {sso ? "or use your password" : "sign in"}
+            </span>
+            <span className="h-px flex-1 bg-kin-border" />
+          </div>
+
+          <form onSubmit={signIn} className="space-y-3">
+            <Field
+              label="Username or email"
+              value={username}
+              onChange={setUsername}
+              autoComplete="username"
+              placeholder="priya"
+            />
+            <Field
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+            />
+
+            {error && (
+              <p className="rounded-lg bg-kin-alert/10 px-3 py-2 text-sm text-kin-alert">
+                {error}
+              </p>
+            )}
+
             <button
-              type="button"
-              onClick={() => setShowPassword(true)}
-              className="mt-4 w-full text-center text-xs text-kin-muted underline underline-offset-2 hover:text-kin-text"
+              type="submit"
+              disabled={busy || !username.trim() || !password}
+              className="w-full rounded-lg border border-kin-border px-4 py-2.5 text-sm font-medium text-kin-text transition hover:bg-kin-panel2 disabled:opacity-50"
             >
-              Staff sign-in
+              {busy ? "Signing in…" : "Sign in with password"}
             </button>
-          )}
-
-          {(showPassword || !sso) && (
-            <>
-              <div className="my-5 flex items-center gap-3">
-                <span className="h-px flex-1 bg-kin-border" />
-                <span className="text-xs text-kin-muted">
-                  {sso ? "staff / password sign-in" : "sign in"}
-                </span>
-                <span className="h-px flex-1 bg-kin-border" />
-              </div>
-
-              <form onSubmit={signIn} className="space-y-3">
-                <Field
-                  label="Username"
-                  value={username}
-                  onChange={setUsername}
-                  autoComplete="username"
-                  placeholder="priya"
-                />
-                <Field
-                  label="Password"
-                  value={password}
-                  onChange={setPassword}
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                />
-
-                {error && (
-                  <p className="rounded-lg bg-kin-alert/10 px-3 py-2 text-sm text-kin-alert">
-                    {error}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={busy || !username || !password}
-                  className="w-full rounded-lg border border-kin-border px-4 py-2.5 text-sm font-medium text-kin-text transition hover:bg-kin-panel2 disabled:opacity-50"
-                >
-                  {busy ? "Signing in…" : "Sign in with password"}
-                </button>
-              </form>
-            </>
-          )}
+          </form>
         </div>
 
         {/* Demo credentials — only meaningful without a real auth backend. */}
