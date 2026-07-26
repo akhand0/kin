@@ -2,8 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/anomaly-check?secret=dev-secret",
-      "schedule": "0 * * * *"
+      "path": "/api/anomaly-check",
+      "schedule": "0 8 * * *"
     }
   ]
 }
