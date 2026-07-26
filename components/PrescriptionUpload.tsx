@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PrescriptionMeta } from "@/lib/types";
 
-// Patient-side: upload a prescription photo/PDF and see its review status.
-// Polls so the status flips to "reviewed" live once the clinician acts.
+// Patient-side: upload a prescription photo and Kin reads it back in plain
+// language (what it is, how to take it), with a "check with your pharmacist"
+// guardrail. It is NOT sent to the clinician for review.
 export default function PrescriptionUpload() {
   const [list, setList] = useState<PrescriptionMeta[]>([]);
   const [busy, setBusy] = useState(false);
@@ -22,8 +23,6 @@ export default function PrescriptionUpload() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
   }, [load]);
 
   const onFile = useCallback(
@@ -74,11 +73,12 @@ export default function PrescriptionUpload() {
             Prescriptions
           </div>
           <p className="mt-0.5 text-xs text-kin-muted">
-            Snap a photo of a new prescription — your care team will review it.
+            Snap a photo of a prescription and Kin will explain what it&apos;s
+            for and how to take it.
           </p>
         </div>
         <label className="shrink-0 cursor-pointer rounded-lg bg-kin-accent px-4 py-2 text-sm font-semibold text-black hover:opacity-90">
-          {busy ? "Uploading…" : "Upload"}
+          {busy ? "Reading…" : "Upload"}
           <input
             ref={inputRef}
             type="file"
@@ -99,27 +99,29 @@ export default function PrescriptionUpload() {
         </p>
       )}
 
+      {busy && (
+        <p className="mt-3 flex items-center gap-2 rounded-lg bg-kin-bg px-3 py-2 text-sm text-kin-muted">
+          <span className="kin-pulse text-kin-accent">◆</span>
+          Reading your prescription…
+        </p>
+      )}
+
       {list.length > 0 && (
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-4 space-y-3">
           {list.map((rx) => (
             <li
               key={rx.id}
-              className="flex items-center justify-between rounded-lg border border-kin-border bg-kin-bg px-3 py-2 text-sm"
+              className="rounded-lg border border-kin-border bg-kin-bg p-3"
             >
-              <span className="flex items-center gap-2 truncate text-kin-text">
+              <div className="flex items-center gap-2 text-sm text-kin-text">
                 <span aria-hidden>📄</span>
                 <span className="truncate">{rx.file_name}</span>
-              </span>
-              <span
-                className="ml-3 shrink-0 rounded-full px-2 py-0.5 text-xs"
-                style={
-                  rx.status === "reviewed"
-                    ? { background: "#4ade801a", color: "#4ade80" }
-                    : { background: "#fbbf241a", color: "#fbbf24" }
-                }
-              >
-                {rx.status === "reviewed" ? "Reviewed ✓" : "Pending review"}
-              </span>
+              </div>
+              {rx.explanation && (
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-kin-muted">
+                  {rx.explanation}
+                </p>
+              )}
             </li>
           ))}
         </ul>

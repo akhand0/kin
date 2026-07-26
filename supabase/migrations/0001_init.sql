@@ -77,10 +77,14 @@ create table if not exists prescriptions (
   mime_type text,
   file_url text,                             -- data URL (demo) or storage URL
   note text,
-  status text default 'pending',             -- pending | reviewed
+  explanation text,                          -- Kin's plain-language explanation
+  status text default 'explained',           -- explained (patient-facing)
   created_at timestamptz default now(),
   reviewed_at timestamptz
 );
+
+-- If re-running on an older schema, make sure the column exists.
+alter table prescriptions add column if not exists explanation text;
 
 -- Peer support: opted-in patients connect and exchange text messages.
 create table if not exists peer_connections (

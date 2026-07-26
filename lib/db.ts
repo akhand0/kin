@@ -59,7 +59,7 @@ interface Store {
 
 // Columns returned in list/bundle payloads — everything except the file body.
 const RX_META_COLS =
-  "id, patient_id, file_name, mime_type, note, status, created_at, reviewed_at";
+  "id, patient_id, file_name, mime_type, note, explanation, status, created_at, reviewed_at";
 
 // ── In-memory store (default / demo) ────────────────────────────
 interface MemState {
@@ -448,6 +448,7 @@ export async function addPrescription(input: {
   mimeType: string;
   fileUrl: string;
   note?: string | null;
+  explanation?: string | null;
 }): Promise<PrescriptionMeta> {
   return store().insertPrescription({
     id: uid("rx"),
@@ -456,7 +457,9 @@ export async function addPrescription(input: {
     mime_type: input.mimeType,
     file_url: input.fileUrl,
     note: input.note ?? null,
-    status: "pending",
+    explanation: input.explanation ?? null,
+    // Explained-to-the-patient on upload; no longer a clinician review item.
+    status: "explained",
     created_at: new Date().toISOString(),
     reviewed_at: null,
   });

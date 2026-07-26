@@ -8,7 +8,6 @@ import type {
   Alert,
   EngagementEvent,
   Patient,
-  PrescriptionMeta,
   Signal,
 } from "@/lib/types";
 import type { AgentSummary } from "@/lib/agent";
@@ -20,7 +19,7 @@ import WeeklyDigest from "@/components/WeeklyDigest";
 import DemoControls from "@/components/DemoControls";
 import AgentPanel from "@/components/AgentPanel";
 import AgentLog from "@/components/AgentLog";
-import PrescriptionsPanel from "@/components/PrescriptionsPanel";
+import MedicinesPanel from "@/components/PrescriptionsPanel";
 
 type RosterItem = Patient & {
   last_checkin: string | null;
@@ -28,7 +27,6 @@ type RosterItem = Patient & {
   top_severity: number;
   top_kind: Alert["kind"] | null;
   agent_handling: boolean;
-  pending_prescriptions: number;
 };
 
 interface Bundle {
@@ -37,7 +35,6 @@ interface Bundle {
   signals: Signal[];
   alerts: Alert[];
   actions: AgentAction[];
-  prescriptions: PrescriptionMeta[];
 }
 
 const KIND_ICON: Record<Alert["kind"], string> = {
@@ -253,9 +250,8 @@ export default function Dashboard() {
                 </div>
               </section>
 
-              <PrescriptionsPanel
+              <MedicinesPanel
                 patientId={bundle.patient.id}
-                prescriptions={bundle.prescriptions}
                 medicines={bundle.patient.medicines}
                 onChange={refresh}
               />
@@ -386,9 +382,6 @@ function MutedGroup({
                 style={{ background: tone }}
               />
               {p.name}
-              {p.pending_prescriptions > 0 && (
-                <span title="New prescription to review">📎</span>
-              )}
             </span>
             <span className="text-[11px] text-kin-muted">
               {p.last_checkin ? timeAgo(p.last_checkin) : "—"}
@@ -425,14 +418,7 @@ function QueueCard({
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="font-semibold text-kin-text">
-          {item.name}
-          {item.pending_prescriptions > 0 && (
-            <span className="ml-1.5" title="New prescription to review">
-              📎
-            </span>
-          )}
-        </span>
+        <span className="font-semibold text-kin-text">{item.name}</span>
         <span className="kin-pulse text-xs" style={{ color }}>
           {item.top_kind ? KIND_ICON[item.top_kind] : "●"}
         </span>

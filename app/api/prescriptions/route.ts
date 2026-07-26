@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addPrescription, listPrescriptions } from "@/lib/db";
+import { addPrescription, getPatient, listPrescriptions } from "@/lib/db";
+import { explainPrescription } from "@/lib/triage";
 import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -61,12 +62,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Kin reads the prescription and explains it to the patient (with a
+    // "confirm with your pharmacist" guardrail). It's no longer a clinician
+    // review item — this is patient-facing.
+    const patient = await getPatient(patientId);
+    const explanation = await explainPrescription(
+      body.data_url,
+      patient?.name?.split(" ")[0],
+    );
     const created = await addPrescription({
       patientId,
       fileName: body.file_name?.slice(0, 200) || "prescription",
       mimeType: body.mime_type || "application/octet-stream",
       fileUrl: body.data_url,
       note: body.note?.slice(0, 500) ?? null,
+      explanation,
     });
     return NextResponse.json({ prescription: created });
   } catch {
