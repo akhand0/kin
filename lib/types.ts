@@ -126,7 +126,8 @@ export interface Alert {
   resolved_at: string | null;
 }
 
-// The structured object Claude returns from the triage prompt.
+// The structured object the LLM returns from the triage prompt. `reply` is the
+// patient-facing conversational message (not persisted on the Signal).
 export interface TriageResult {
   language: string;
   med_adherence: MedAdherence;
@@ -136,4 +137,5 @@ export interface TriageResult {
   triage: Triage;
   summary_en: string;
   suggested_action: string | null;
+  reply?: string;
 }

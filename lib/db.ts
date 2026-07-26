@@ -578,6 +578,7 @@ export interface CheckinResult {
   signal: Signal;
   alerts: Alert[]; // escalations to the clinician (often empty — Kin handled it)
   actions: AgentAction[]; // what Kin did on its own authority
+  reply: string; // the AI's patient-facing conversational reply
 }
 
 export async function recordCheckin(input: CheckinInput): Promise<CheckinResult> {
@@ -604,13 +605,15 @@ export async function recordCheckin(input: CheckinInput): Promise<CheckinResult>
     patient,
     recentSignals: recent,
   });
+  // `reply` is patient-facing and ephemeral — keep it out of the stored Signal.
+  const { reply: aiReply, ...triageFields } = result;
 
   const signal: Signal = {
     id: uid("sig"),
     event_id: event.id,
     patient_id: patient.id,
     ts: now,
-    ...result,
+    ...triageFields,
   };
   await s.insertSignal(signal);
 
@@ -635,7 +638,13 @@ export async function recordCheckin(input: CheckinInput): Promise<CheckinResult>
 
   const actions = await logActions(s, decision.actions);
 
-  return { event, signal, alerts, actions };
+  return {
+    event,
+    signal,
+    alerts,
+    actions,
+    reply: aiReply || "Thank you for checking in — I've noted that down.",
+  };
 }
 
 // Persist Kin's decisions to the audit log.

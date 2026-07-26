@@ -9,7 +9,7 @@
 
 import type { Patient, Signal, TriageResult } from "./types";
 
-export const TRIAGE_SYSTEM_PROMPT = `You are the triage layer of Kin, a follow-up companion for people with chronic conditions. Your output is read by a care coordinator managing a caseload of patients between appointments. You NEVER give medical advice, diagnosis, or reassurance about symptoms. You only classify and summarise so a clinician can decide.
+export const TRIAGE_SYSTEM_PROMPT = `You are Kin, a warm follow-up companion for people with chronic conditions. You do two things at once: (1) talk to the patient, and (2) classify the check-in for their care coordinator. You NEVER give medical advice, diagnosis, or reassurance about symptoms — you acknowledge, and escalate to a human.
 
 Return ONLY valid JSON matching this shape:
 {
@@ -20,13 +20,15 @@ Return ONLY valid JSON matching this shape:
   "red_flags": ["..."],
   "triage": "on_track | nudge | red_flag",
   "summary_en": "2 sentences, plain English, written for a care coordinator",
-  "suggested_action": "one concrete action for the care coordinator, or null"
+  "suggested_action": "one concrete action for the care coordinator, or null",
+  "reply": "your warm, natural reply TO THE PATIENT (1-2 sentences), in the SAME language they wrote in, addressing them by first name if known"
 }
 
 Rules:
 - red_flag if: chest pain, severe breathlessness, fainting, a fall, confusion, uncontrolled bleeding, medicines stopped entirely, or a symptom clearly worsening versus recent context.
 - nudge if: missed doses, ran out of medicine, missed an appointment, or mood is persistently low.
-- Be conservative: if evidence is unclear, say "unclear". Never invent details that are not in the transcript.`;
+- Be conservative: if evidence is unclear, say "unclear". Never invent details that are not in the transcript.
+- The "reply" is you speaking to the patient: kind and human, never clinical. Do NOT diagnose, advise on symptoms, or tell them what a symptom means. If anything is concerning, reassure them you've passed it to their care team so a person can check on them. For plain greetings or small talk, just reply warmly and invite them to share how they're doing.`;
 
 export interface TriageInput {
   transcript: string;
@@ -120,6 +122,7 @@ export async function triage(input: TriageInput): Promise<TriageResult> {
 // The transcript + structured patient context, shared by both LLM providers.
 function buildUserContent(input: TriageInput): string {
   const context = {
+    patient_first_name: input.patient.name?.split(" ")[0],
     conditions: input.patient.conditions,
     medicines: input.patient.medicines,
     last_5_signals: input.recentSignals.map((s) => ({
@@ -202,6 +205,7 @@ function normalizeTriage(
     triage: p.triage || "on_track",
     summary_en: p.summary_en || "Check-in received.",
     suggested_action: p.suggested_action ?? null,
+    reply: p.reply || undefined,
   };
 }
 
@@ -310,6 +314,15 @@ export function heuristicTriage(input: TriageInput): TriageResult {
     suggested = med_adherence === "missed" ? `Reinforce medication routine at next contact.` : `Add to follow-up list.`;
   }
 
+  // Offline fallback reply (used only when no LLM is configured).
+  const first = who.split(" ")[0];
+  const reply =
+    triageLevel === "red_flag"
+      ? `Thank you for telling me — that sounds important. I'm not a doctor so I won't guess, but I've passed this to your care team so someone can check on you. You're not alone, ${first}.`
+      : triageLevel === "nudge"
+        ? `Thanks for sharing that with me, ${first}. I've made a note and I'll check in again tomorrow. Is there anything you'd like me to remind you about?`
+        : `Lovely to hear from you, ${first}. I've noted today's check-in — take care, and talk soon.`;
+
   return {
     language: lang,
     med_adherence,
@@ -319,5 +332,6 @@ export function heuristicTriage(input: TriageInput): TriageResult {
     triage: triageLevel,
     summary_en,
     suggested_action: suggested,
+    reply,
   };
 }
