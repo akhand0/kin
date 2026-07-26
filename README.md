@@ -116,9 +116,11 @@ NEXT_PUBLIC_ELEVENLABS_AGENT_ID=...
 ```
 
 Point the agent's **post-call webhook** at `/api/webhook/elevenlabs` with a
-bearer token equal to `KIN_CRON_SECRET`, and pass `patient_id` as a dynamic
-variable when the call starts. The `/talk` page embeds the Conversational AI
-widget when this id is set.
+bearer token equal to `KIN_CRON_SECRET`. The `/talk` page passes the internal
+record key as `patient_record_id` and the patient's first name as `patient_id`
+(plus `patient_name` and `name`) for compatibility with voice prompts. The
+webhook accepts `patient_record_id` first and falls back to the legacy
+`patient_id`.
 
 ## Anomaly rules (MVP — no ML)
 

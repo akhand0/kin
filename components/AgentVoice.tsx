@@ -4,6 +4,10 @@ import { useCallback, useRef, useState } from "react";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { VoiceOrb, type Mode } from "./VoiceOrb";
 
+// Strip ElevenLabs audio/emotion tags like "[happy]" from the visible text.
+const stripTags = (s: string) =>
+  s.replace(/\[[^\]]*\]/g, "").replace(/\s{2,}/g, " ").trim();
+
 interface Turn {
   who: "patient" | "kin";
   text: string;
@@ -15,7 +19,6 @@ interface Turn {
 function summariseRecord(b: {
   patient?: {
     name?: string;
-    patient_ref?: string;
     conditions?: string[];
     medicines?: string[];
   };
@@ -62,7 +65,7 @@ function summariseRecord(b: {
     .join("\n");
 
   return [
-    `Patient: ${p.name ?? "Unknown"}${p.patient_ref ? ` (${p.patient_ref})` : ""}.`,
+    `Patient: ${p.name ?? "Unknown"}.`,
     `Conditions: ${(p.conditions ?? []).join(", ") || "none on record"}.`,
     `Current medicines: ${(p.medicines ?? []).join(", ") || "none on record"}.`,
     `Check-ins in the last 30 days: ${monthCount} (medicines taken on ${taken}, missed or paused on ${missed}).`,
@@ -90,7 +93,11 @@ export default function AgentVoice({
 }) {
   return (
     <ConversationProvider>
-      <AgentOrb agentId={agentId} variables={variables} onCheckin={onCheckin} />
+      <AgentOrb
+        agentId={agentId}
+        variables={variables}
+        onCheckin={onCheckin}
+      />
     </ConversationProvider>
   );
 }
@@ -107,16 +114,19 @@ function AgentOrb({
   const [hint, setHint] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const userBuf = useRef("");
-  // Keep the latest context in a ref so startSession always sends fresh data.
+  // Keep the latest context in a ref so the session always uses it.
   const varsRef = useRef(variables);
   varsRef.current = variables;
 
   const { status, isSpeaking, startSession, endSession } = useConversation({
     onMessage: ({ message, source }) => {
-      setTurns((t) => [
-        ...t,
-        { who: source === "user" ? "patient" : "kin", text: message },
-      ]);
+      const text = stripTags(message);
+      if (text) {
+        setTurns((turns) => [
+          ...turns,
+          { who: source === "user" ? "patient" : "kin", text },
+        ]);
+      }
       if (source === "user") {
         userBuf.current = `${userBuf.current} ${message}`.trim();
       }
@@ -171,7 +181,7 @@ function AgentOrb({
       // patient's session, so it only ever reads their own data.
       clientTools: {
         get_patient_record: async () => {
-          const id = varsRef.current.patient_id;
+          const id = varsRef.current.patient_record_id;
           if (!id) return "No patient record is available right now.";
           try {
             const res = await fetch(`/api/patients/${id}`, {
@@ -206,19 +216,21 @@ function AgentOrb({
 
       {turns.length > 0 && (
         <div className="mt-8 w-full space-y-3">
-          {turns.map((t, i) => (
+          {turns.map((turn, index) => (
             <div
-              key={i}
-              className={`flex ${t.who === "patient" ? "justify-end" : "justify-start"}`}
+              key={index}
+              className={`flex ${
+                turn.who === "patient" ? "justify-end" : "justify-start"
+              }`}
             >
               <div
                 className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-                  t.who === "patient"
+                  turn.who === "patient"
                     ? "bg-kin-accent text-black"
                     : "bg-kin-panel2 text-kin-text"
                 }`}
               >
-                {t.text}
+                {turn.text}
               </div>
             </div>
           ))}

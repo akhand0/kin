@@ -244,8 +244,12 @@ export default function Talk() {
   // questions about their meds, conditions, and recent check-ins.
   const agentVariables: Record<string, string> = me
     ? {
-        patient_id: me.id,
+        // Keep the prompt-facing patient_id human-readable. Some existing
+        // ElevenLabs prompts use this variable when greeting the patient.
+        patient_id: firstName,
+        patient_record_id: me.id,
         patient_name: firstName,
+        name: firstName,
         full_name: me.name,
         language: me.language,
         conditions: me.conditions.join(", ") || "none on record",
